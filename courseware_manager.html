@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>课件管理器 (Courseware Manager)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#4f46e5',
+                        'primary-hover': '#4338ca',
+                        'primary-light': '#e0e7ff',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom scrollbar for cleaner look */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #d1d5db;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #9ca3af;
+        }
+        
+        .tree-children {
+            display: none;
+        }
+        .tree-children.expanded {
+            display: block;
+        }
+        /* Drag and Drop Styles */
+        .slide-card.dragging {
+            opacity: 0.5;
+            border-style: dashed;
+            border-color: #4f46e5;
+        }
+        .slide-card.drag-over {
+            border-top: 2px solid #4f46e5;
+        }
+        .arrow {
+            transition: transform 0.2s;
+        }
+        .arrow.open {
+            transform: rotate(90deg);
+        }
+        /* Checkbox Styles */
+        input[type="checkbox"] {
+            accent-color: #4f46e5;
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 h-screen flex flex-col overflow-hidden text-gray-700 font-sans">
+
+    <!-- Header -->
+    <header class="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 flex-shrink-0 z-10 shadow-sm">
+        <div class="flex items-center gap-3">
+            <button id="toggle-sidebar" class="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 transition-colors" title="切换侧边栏">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+            </button>
+            <h1 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <span class="text-2xl">🎓</span> <span id="app-title">Gemini 课件管理器</span>
+            </h1>
+        </div>
+        
+        <div class="flex gap-2">
+            <button id="lang-toggle" class="px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-100 rounded-md border border-gray-200 transition-colors">
+                English
+            </button>
+        </div>
+    </header>
+
+    <div id="app-container" class="flex flex-1 overflow-hidden">
+        <!-- Left Sidebar: File Tree -->
+        <aside id="file-tree-panel" class="w-80 bg-gray-50 border-r border-gray-200 flex flex-col flex-shrink-0 transition-all duration-300 ease-in-out">
+            <div class="p-3 border-b border-gray-200">
+                <input type="file" id="folder-input" webkitdirectory directory multiple class="hidden">
+                <button onclick="document.getElementById('folder-input').click()" 
+                        class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 text-gray-700 font-medium transition-all text-sm group">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-gray-500 group-hover:text-primary transition-colors"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                    <span id="open-dir-text">打开课件目录</span>
+                </button>
+                <p id="supported-files-text" class="text-[10px] text-gray-400 text-center mt-2">支持展示 PDF、HTML、视频、图片文件</p>
+            </div>
+            
+            <div class="px-4 py-2 text-xs font-semibold text-gray-400 uppercase tracking-wider flex justify-between items-center">
+                <span id="resource-title">资源目录</span>
+                <span id="resource-subtitle" class="text-[10px] text-gray-300">勾选以添加到列表</span>
+            </div>
+
+            <div id="tree-content" class="flex-1 overflow-y-auto px-2 pb-4">
+                <div class="flex flex-col items-center justify-center h-32 text-gray-400 text-sm text-center mt-10">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mb-2 opacity-50"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                    <p id="tree-empty-title">暂无文件</p>
+                    <p id="tree-empty-subtitle" class="text-xs mt-1">请点击上方按钮加载</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Middle: Slide List -->
+        <section id="slide-list-panel" class="w-72 bg-white border-r border-gray-200 flex flex-col flex-shrink-0 shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-0">
+            <div class="h-10 flex items-center justify-between px-4 border-b border-gray-100 bg-white">
+                <span id="playlist-title" class="text-xs font-medium text-gray-500 uppercase">内容列表</span>
+                <span id="item-count" class="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">0</span>
+            </div>
+            <div id="slide-list-content" class="flex-1 overflow-y-auto p-3 space-y-3 bg-gray-50/50">
+                <!-- Slides will go here -->
+            </div>
+        </section>
+
+        <!-- Right: Preview -->
+        <main id="preview-panel" class="flex-1 bg-gray-100 flex flex-col relative min-w-0">
+            <div id="preview-container" class="flex-1 flex items-center justify-center p-6 overflow-hidden">
+                <div id="empty-state" class="text-center text-gray-400">
+                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-white mb-4 shadow-sm">
+                        <span class="text-3xl">👋</span>
+                    </div>
+                    <h2 id="welcome-title" class="text-lg font-medium text-gray-600 mb-1">欢迎使用</h2>
+                    <p id="welcome-text" class="text-sm">请在左侧勾选内容添加到列表</p>
+                </div>
+                <iframe id="preview-iframe" class="w-full h-full bg-white rounded-lg shadow-sm border border-gray-200 hidden" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+                <video id="preview-video" class="w-full h-full bg-black rounded-lg shadow-sm hidden" controls></video>
+                <img id="preview-image" class="w-full h-full object-contain bg-white rounded-lg shadow-sm hidden">
+            </div>
+            
+            <!-- Bottom Controls -->
+            <div class="h-14 bg-white border-t border-gray-200 flex items-center justify-center gap-4 px-6 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.02)] z-10">
+                <button id="btn-prev" disabled class="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                    <span id="btn-prev-text">上一页</span>
+                </button>
+                
+                <span id="page-indicator" class="text-sm font-mono text-gray-500 min-w-[60px] text-center bg-gray-50 px-2 py-1 rounded border border-gray-100"> - / - </span>
+                
+                <button id="btn-next" disabled class="flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                    <span id="btn-next-text">下一页</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                </button>
+                
+                <div class="w-px h-6 bg-gray-200 mx-2"></div>
+                
+                <button id="btn-fullscreen" class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-primary hover:bg-primary-light hover:text-primary-hover transition-colors" title="全屏演示">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+                    <span id="btn-fullscreen-text">全屏</span>
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // State Management
+        // Detect browser language
+        const isZh = (navigator.language || navigator.userLanguage || 'zh').toLowerCase().startsWith('zh');
+        
+        const state = {
+            rootNode: null, // The unified tree root
+            playlistFiles: [], // Flat list of files to show in the middle panel
+            currentIndex: -1,
+            currentBlobUrl: null,
+            currentLang: isZh ? 'zh' : 'en'
+        };
+
+        const translations = {
+            zh: {
+                appTitle: 'Gemini 课件管理器',
+                toggleSidebar: '切换侧边栏',
+                openDir: '打开课件目录',
+                supportedFiles: '支持展示 PDF、HTML、视频、图片文件',
+                resources: '资源目录',
+                checkToAdd: '勾选以添加到列表',
+                noFiles: '暂无文件',
+                clickToLoad: '请点击上方按钮加载',
+                playlist: '内容列表',
+                welcome: '欢迎使用',
+                selectToStart: '请在左侧勾选内容添加到列表',
+                prev: '上一页',
+                next: '下一页',
+                fullscreen: '全屏',
+                fullscreenTitle: '全屏演示',
+                langToggle: 'English'
+            },
+            en: {
+                appTitle: 'Gemini Courseware Manager',
+                toggleSidebar: 'Toggle Sidebar',
+                openDir: 'Open Directory',
+                supportedFiles: 'Supports PDF, HTML, Video, Image',
+                resources: 'Resources',
+                checkToAdd: 'Check to add to list',
+                noFiles: 'No files found',
+                clickToLoad: 'Click button above to load',
+                playlist: 'Playlist',
+                welcome: 'Welcome',
+                selectToStart: 'Select items from left to start',
+                prev: 'Previous',
+                next: 'Next',
+                fullscreen: 'Fullscreen',
+                fullscreenTitle: 'Fullscreen Mode',
+                langToggle: '中文'
+            }
+        };
+
+        // DOM Elements
+        const els = {
+            folderInput: document.getElementById('folder-input'),
+            treeContent: document.getElementById('tree-content'),
+            slideList: document.getElementById('slide-list-content'),
+            previewIframe: document.getElementById('preview-iframe'),
+            previewVideo: document.getElementById('preview-video'),
+            previewImage: document.getElementById('preview-image'),
+            emptyState: document.getElementById('empty-state'),
+            btnPrev: document.getElementById('btn-prev'),
+            btnNext: document.getElementById('btn-next'),
+            btnFullscreen: document.getElementById('btn-fullscreen'),
+            pageIndicator: document.getElementById('page-indicator'),
+            itemCount: document.getElementById('item-count'),
+            toggleSidebar: document.getElementById('toggle-sidebar'),
+            fileTreePanel: document.getElementById('file-tree-panel'),
+            langToggle: document.getElementById('lang-toggle')
+        };
+
+        // Configuration
+        const SUPPORTED_EXTENSIONS = {
+            'html': 'iframe',
+            'htm': 'iframe',
+            'pdf': 'iframe',
+            'mp4': 'video',
+            'webm': 'video',
+            'ogg': 'video',
+            'jpg': 'image',
+            'jpeg': 'image',
+            'png': 'image',
+            'gif': 'image',
+            'webp': 'image',
+            'svg': 'image'
+        };
+
+        // --- Event Listeners ---
+
+        els.folderInput.addEventListener('change', handleFilesSelected);
+        els.langToggle.addEventListener('click', toggleLanguage);
+        
+        els.toggleSidebar.addEventListener('click', () => {
+            if (els.fileTreePanel.classList.contains('w-80')) {
+                els.fileTreePanel.classList.remove('w-80');
+                els.fileTreePanel.classList.add('w-0', 'overflow-hidden');
+            } else {
+                els.fileTreePanel.classList.add('w-80');
+                els.fileTreePanel.classList.remove('w-0', 'overflow-hidden');
+            }
+        });
+
+        els.btnPrev.addEventListener('click', () => navigate(-1));
+        els.btnNext.addEventListener('click', () => navigate(1));
+        els.btnFullscreen.addEventListener('click', toggleFullscreen);
+
+        // Keyboard Navigation
+        document.addEventListener('keydown', (e) => {
+            if (document.activeElement.tagName === 'INPUT') return;
+            if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                e.preventDefault();
+                navigate(-1);
+            }
+            if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+                e.preventDefault();
+                navigate(1);
+            }
+        });
+
+        // --- Core Logic ---
+
+        function updateLanguage() {
+            const t = translations[state.currentLang];
+            
+            // Helper to safely update text
+            const setTxt = (id, txt) => {
+                const el = document.getElementById(id);
+                if (el) el.innerText = txt;
+            };
+            
+            // Update static text
+            setTxt('app-title', t.appTitle);
+            if (els.toggleSidebar) els.toggleSidebar.title = t.toggleSidebar;
+            setTxt('open-dir-text', t.openDir);
+            setTxt('supported-files-text', t.supportedFiles);
+            setTxt('resource-title', t.resources);
+            setTxt('resource-subtitle', t.checkToAdd);
+            setTxt('tree-empty-title', t.noFiles);
+            setTxt('tree-empty-subtitle', t.clickToLoad);
+            setTxt('playlist-title', t.playlist);
+            setTxt('welcome-title', t.welcome);
+            setTxt('welcome-text', t.selectToStart);
+            setTxt('btn-prev-text', t.prev);
+            setTxt('btn-next-text', t.next);
+            setTxt('btn-fullscreen-text', t.fullscreen);
+            if (els.btnFullscreen) els.btnFullscreen.title = t.fullscreenTitle;
+            if (els.langToggle) els.langToggle.innerText = t.langToggle;
+            
+            document.title = state.currentLang === 'zh' ? '课件管理器 (Courseware Manager)' : 'Courseware Manager';
+            document.documentElement.lang = state.currentLang === 'zh' ? 'zh-CN' : 'en';
+        }
+
+        function toggleLanguage() {
+            state.currentLang = state.currentLang === 'zh' ? 'en' : 'zh';
+            updateLanguage();
+        }
+
+        function handleFilesSelected(e) {
+            const fileList = Array.from(e.target.files);
+            if (fileList.length === 0) return;
+
+            // Reset state
+            state.rootNode = { 
+                name: 'Root', 
+                type: 'folder',
+                path: '',
+                children: {}, // Using object for temporary build
+                childrenList: [], // Final sorted array
+                checked: false, // Default unchecked
+                indeterminate: false,
+                parent: null,
+                expanded: true
+            };
+            state.playlistFiles = [];
+            state.currentIndex = -1;
+            
+            // Build Nested Tree
+            fileList.forEach(file => {
+                // Filter unsupported files immediately
+                const ext = file.name.split('.').pop().toLowerCase();
+                if (!SUPPORTED_EXTENSIONS[ext]) return;
+
+                const parts = file.webkitRelativePath.split('/');
+                // parts[0] is the root folder name, usually we want that as the root node or child of root
+                // Let's make the first folder a child of our virtual root
+                
+                let currentNode = state.rootNode;
+                
+                for (let i = 0; i < parts.length; i++) {
+                    const partName = parts[i];
+                    const isFile = (i === parts.length - 1);
+                    
+                    if (isFile) {
+                        // Add File Node
+                        const fileNode = {
+                            name: partName,
+                            type: 'file',
+                            path: file.webkitRelativePath,
+                            file: file,
+                            checked: false,
+                            parent: currentNode
+                        };
+                        // We use a special key for files to avoid collision with folders (though rare in same dir)
+                        currentNode.children['file:' + partName] = fileNode;
+                    } else {
+                        // Navigate/Create Folder Node
+                        if (!currentNode.children[partName]) {
+                            const newFolder = {
+                                name: partName,
+                                type: 'folder',
+                                path: parts.slice(0, i+1).join('/'),
+                                children: {},
+                                childrenList: [],
+                                checked: false,
+                                indeterminate: false,
+                                parent: currentNode,
+                                expanded: false // Default collapsed
+                            };
+                            currentNode.children[partName] = newFolder;
+                        }
+                        currentNode = currentNode.children[partName];
+                    }
+                }
+            });
+
+            // Post-process tree: Convert children objects to sorted arrays
+            convertChildrenToArray(state.rootNode);
+
+            // Generate playlist (will be empty initially as checked defaults to false)
+            refreshPlaylistUI();
+            
+            // Render Tree
+            renderTree();
+            
+            // Auto-expand root children (usually just one root folder)
+            if (state.rootNode.childrenList.length === 1) {
+                 state.rootNode.childrenList[0].expanded = true;
+                 renderTree(); // Re-render to show expansion
+            }
+        }
+
+        function convertChildrenToArray(node) {
+            if (node.type === 'file') return;
+            
+            // Convert children map to array
+            node.childrenList = Object.values(node.children);
+            
+            // Sort: Folders first, then files. Alphabetical within groups.
+            node.childrenList.sort((a, b) => {
+                if (a.type !== b.type) {
+                    return a.type === 'folder' ? -1 : 1;
+                }
+                return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+            });
+            
+            // Recursive processing
+            node.childrenList.forEach(child => convertChildrenToArray(child));
+            
+            // Cleanup map to save memory
+            delete node.children;
+        }
+
+        function renderTree() {
+            els.treeContent.innerHTML = '';
+            
+            // Render root's children (skip virtual root if it has only one child that is the actual root folder)
+            // But usually we just render root's children
+            if (!state.rootNode || !state.rootNode.childrenList || state.rootNode.childrenList.length === 0) {
+                 // Show empty state with localized text
+                 const t = translations[state.currentLang];
+                 els.treeContent.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-32 text-gray-400 text-sm text-center mt-10">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="mb-2 opacity-50"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                        <p id="tree-empty-title">${t.noFiles}</p>
+                        <p id="tree-empty-subtitle" class="text-xs mt-1">${t.clickToLoad}</p>
+                    </div>
+                 `;
+                 return;
+            }
+            
+            state.rootNode.childrenList.forEach(child => {
+                els.treeContent.appendChild(createTreeNodeElement(child));
+            });
+        }
+
+        function createTreeNodeElement(node) {
+            // Container
+            const container = document.createElement('div');
+            container.className = 'select-none';
+            
+            // Header Row
+            const content = document.createElement('div');
+            content.className = 'tree-content flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-gray-100 text-gray-700 text-sm transition-colors mb-0.5 group';
+            
+            // 1. Arrow (for folders)
+            const arrow = document.createElement('span');
+            arrow.className = `w-4 h-4 flex items-center justify-center text-gray-400 text-xs transition-transform cursor-pointer ${node.type === 'folder' ? (node.expanded ? 'rotate-90' : '') : 'invisible'}`;
+            arrow.innerHTML = '▶';
+            arrow.onclick = (e) => {
+                e.stopPropagation();
+                toggleExpand(node);
+            };
+            content.appendChild(arrow);
+
+            // 2. Checkbox
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = node.checked;
+            checkbox.indeterminate = node.indeterminate || false;
+            checkbox.className = 'mr-1';
+            checkbox.onclick = (e) => {
+                e.stopPropagation();
+                toggleCheck(node, checkbox.checked);
+            };
+            content.appendChild(checkbox);
+            
+            // 3. Icon
+            const icon = document.createElement('span');
+            if (node.type === 'folder') {
+                icon.className = 'text-yellow-500';
+                icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="text-yellow-400"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>';
+            } else {
+                const ext = node.name.split('.').pop().toLowerCase();
+                const type = SUPPORTED_EXTENSIONS[ext];
+                if (type === 'video') {
+                    icon.innerHTML = '🎬';
+                } else if (ext === 'html') {
+                    icon.innerHTML = '🌐';
+                } else if (ext === 'pdf') {
+                    icon.innerHTML = '📑';
+                } else if (type === 'image') {
+                    icon.innerHTML = '🖼️';
+                } else {
+                    icon.innerHTML = '📄';
+                }
+            }
+            content.appendChild(icon);
+            
+            // 4. Name
+            const name = document.createElement('span');
+            name.className = 'truncate font-medium flex-1';
+            name.innerText = node.name;
+            // Click name to expand folder too
+            if (node.type === 'folder') {
+                name.onclick = (e) => {
+                     e.stopPropagation();
+                     toggleExpand(node);
+                };
+            }
+            content.appendChild(name);
+            
+            container.appendChild(content);
+            
+            // Children Container
+            if (node.type === 'folder' && node.expanded && node.childrenList) {
+                const childrenContainer = document.createElement('div');
+                childrenContainer.className = 'pl-5 border-l border-gray-200 ml-2.5';
+                
+                node.childrenList.forEach(child => {
+                    childrenContainer.appendChild(createTreeNodeElement(child));
+                });
+                container.appendChild(childrenContainer);
+            }
+            
+            return container;
+        }
+
+        function toggleExpand(node) {
+            if (node.type !== 'folder') return;
+            node.expanded = !node.expanded;
+            renderTree();
+        }
+
+        function toggleCheck(node, isChecked) {
+            // 1. Update self
+            node.checked = isChecked;
+            node.indeterminate = false;
+            
+            // 2. Update children recursively (Visual State)
+            if (node.type === 'folder' && node.childrenList) {
+                updateChildrenCheck(node, isChecked);
+            }
+            
+            // 3. Update parents recursively (Visual State)
+            updateParentCheck(node.parent);
+
+            // 4. Update Playlist Array (Logic: Incremental Add/Remove)
+            const affectedFiles = [];
+            collectFileNodes(node, affectedFiles);
+            
+            if (isChecked) {
+                // Add unique files to the end
+                affectedFiles.forEach(fNode => {
+                    const exists = state.playlistFiles.some(f => f === fNode.file);
+                    if (!exists) state.playlistFiles.push(fNode.file);
+                });
+            } else {
+                // Remove files
+                const filesToRemove = new Set(affectedFiles.map(n => n.file));
+                state.playlistFiles = state.playlistFiles.filter(f => !filesToRemove.has(f));
+            }
+            
+            // 5. Re-render tree to show changes
+            renderTree();
+            
+            // 6. Update Playlist UI
+            refreshPlaylistUI();
+        }
+
+        function collectFileNodes(node, resultList) {
+            if (node.type === 'file') {
+                resultList.push(node);
+            } else if (node.type === 'folder' && node.childrenList) {
+                node.childrenList.forEach(child => collectFileNodes(child, resultList));
+            }
+        }
+
+        function updateChildrenCheck(node, isChecked) {
+            if (!node.childrenList) return;
+            node.childrenList.forEach(child => {
+                child.checked = isChecked;
+                child.indeterminate = false;
+                if (child.type === 'folder') {
+                    updateChildrenCheck(child, isChecked);
+                }
+            });
+        }
+
+        function updateParentCheck(parentNode) {
+            if (!parentNode) return;
+            
+            const children = parentNode.childrenList;
+            const allChecked = children.every(c => c.checked);
+            const allUnchecked = children.every(c => !c.checked);
+            const someIndeterminate = children.some(c => c.indeterminate);
+            
+            if (allChecked && !someIndeterminate) {
+                parentNode.checked = true;
+                parentNode.indeterminate = false;
+            } else if (allUnchecked && !someIndeterminate) {
+                parentNode.checked = false;
+                parentNode.indeterminate = false;
+            } else {
+                parentNode.checked = false;
+                parentNode.indeterminate = true;
+            }
+            
+            updateParentCheck(parentNode.parent);
+        }
+
+        function refreshPlaylistUI() {
+            // No longer rebuilding from tree traversal
+            // state.playlistFiles is now the source of truth
+            
+            // Render Slide List
+            renderSlideList();
+            
+            // Update count
+            els.itemCount.innerText = state.playlistFiles.length;
+            
+            // Handle empty/selection
+            if (state.playlistFiles.length === 0) {
+                showEmptyPreview();
+                state.currentIndex = -1;
+            }
+        }
+
+        // Removed old collectCheckedFiles as it's no longer used for playlist generation
+        // But we might need to ensure tree check state matches playlist on load? 
+        // Actually, the logic is driven by user action now.
+
+        function renderSlideList() {
+            els.slideList.innerHTML = '';
+            
+            state.playlistFiles.forEach((file, index) => {
+                const ext = file.name.split('.').pop().toLowerCase();
+                const type = SUPPORTED_EXTENSIONS[ext];
+                
+                const div = document.createElement('div');
+                div.className = 'slide-card group border border-gray-200 rounded-lg p-3 cursor-pointer bg-white hover:border-primary hover:shadow-md transition-all duration-200 flex flex-col gap-2';
+                div.id = `slide-${index}`;
+                div.onclick = () => selectSlide(index);
+                
+                // Drag and Drop Attributes
+                div.draggable = true;
+                div.dataset.index = index;
+                
+                div.ondragstart = (e) => {
+                    e.dataTransfer.setData('text/plain', index);
+                    e.dataTransfer.effectAllowed = 'move';
+                    div.classList.add('dragging');
+                };
+                
+                div.ondragend = (e) => {
+                    div.classList.remove('dragging');
+                    document.querySelectorAll('.slide-card').forEach(el => el.classList.remove('drag-over'));
+                };
+                
+                div.ondragover = (e) => {
+                    e.preventDefault(); // Allow drop
+                    e.dataTransfer.dropEffect = 'move';
+                    div.classList.add('drag-over');
+                };
+                
+                div.ondragleave = (e) => {
+                    div.classList.remove('drag-over');
+                };
+                
+                div.ondrop = (e) => {
+                    e.preventDefault();
+                    div.classList.remove('drag-over');
+                    const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
+                    const toIndex = index;
+                    
+                    if (fromIndex !== toIndex) {
+                        handleDrop(fromIndex, toIndex);
+                    }
+                };
+
+                let icon = '📄';
+                if (type === 'video') icon = '🎬';
+                if (ext === 'html') icon = '🌐';
+                if (ext === 'pdf') icon = '📑';
+                if (type === 'image') icon = '🖼️';
+
+                const thumbContainerId = `thumb-${index}`;
+                
+                div.innerHTML = `
+                    <div id="${thumbContainerId}" class="w-full aspect-video bg-gray-100 rounded flex items-center justify-center text-3xl text-gray-300 group-hover:text-gray-400 transition-colors overflow-hidden relative border border-gray-100">
+                        ${type === 'video' ? '<div class="absolute inset-0 flex items-center justify-center bg-black/5 z-10"><span class="w-8 h-8 rounded-full bg-white/80 flex items-center justify-center shadow-sm">▶</span></div>' : ''}
+                        <span class="placeholder-icon">${icon}</span>
+                    </div>
+                    <div class="text-sm font-medium text-gray-800 line-clamp-2 leading-snug break-all">${file.name}</div>
+                    <div class="flex justify-between text-[10px] text-gray-400 font-medium uppercase tracking-wider mt-auto">
+                        <span class="bg-gray-100 px-1.5 py-0.5 rounded">${ext}</span>
+                        <span>${formatSize(file.size)}</span>
+                    </div>
+                `;
+                
+                els.slideList.appendChild(div);
+                
+                // Lazy load thumbnail
+                setTimeout(() => {
+                    generateThumbnail(file, type, ext, document.getElementById(thumbContainerId));
+                }, 0);
+            });
+        }
+
+        function handleDrop(fromIndex, toIndex) {
+            const fileToMove = state.playlistFiles[fromIndex];
+            
+            // Remove from old position
+            state.playlistFiles.splice(fromIndex, 1);
+            
+            // Insert at new position
+            state.playlistFiles.splice(toIndex, 0, fileToMove);
+            
+            // Update currentIndex if necessary
+            if (state.currentIndex === fromIndex) {
+                state.currentIndex = toIndex;
+            } else if (state.currentIndex > fromIndex && state.currentIndex <= toIndex) {
+                state.currentIndex--;
+            } else if (state.currentIndex < fromIndex && state.currentIndex >= toIndex) {
+                state.currentIndex++;
+            }
+            
+            refreshPlaylistUI();
+            
+            // Re-highlight current selection
+            if (state.currentIndex >= 0) {
+                selectSlide(state.currentIndex);
+            }
+        }
+
+        function generateThumbnail(file, type, ext, container) {
+            if (!container) return;
+            
+            const fileURL = URL.createObjectURL(file);
+            
+            if (type === 'video') {
+                const video = document.createElement('video');
+                video.src = fileURL;
+                video.muted = true;
+                video.preload = 'metadata';
+                video.currentTime = 1; // Seek to 1s
+                
+                video.onloadeddata = () => {
+                    video.className = 'absolute inset-0 w-full h-full object-cover';
+                    video.removeAttribute('controls');
+                    const placeholder = container.querySelector('.placeholder-icon');
+                    if (placeholder) placeholder.style.display = 'none';
+                    container.insertBefore(video, container.firstChild);
+                };
+                
+            } else if (type === 'image') {
+                const img = document.createElement('img');
+                img.src = fileURL;
+                img.className = 'absolute inset-0 w-full h-full object-cover';
+                img.onload = () => {
+                    const placeholder = container.querySelector('.placeholder-icon');
+                    if (placeholder) placeholder.style.display = 'none';
+                };
+                container.insertBefore(img, container.firstChild);
+            } else if (type === 'iframe') {
+                const iframe = document.createElement('iframe');
+                
+                // Add PDF view parameters to try to fit content
+                if (ext === 'pdf') {
+                     iframe.src = fileURL + '#view=Fit';
+                } else {
+                     iframe.src = fileURL;
+                }
+
+                // Scale down 8x to fit (12.5%)
+                iframe.className = 'absolute inset-0 w-[800%] h-[800%] origin-top-left transform scale-[0.125] border-none pointer-events-none bg-white';
+                iframe.scrolling = 'no';
+                
+                if (ext === 'pdf') {
+                    iframe.removeAttribute('sandbox');
+                } else {
+                    iframe.sandbox = 'allow-same-origin allow-scripts';
+                }
+                
+                iframe.onload = () => {
+                    const placeholder = container.querySelector('.placeholder-icon');
+                    if (placeholder) placeholder.style.display = 'none';
+                };
+
+                container.insertBefore(iframe, container.firstChild);
+            }
+        }
+        
+        function formatSize(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        function selectSlide(index) {
+            if (index < 0 || index >= state.playlistFiles.length) return;
+            
+            state.currentIndex = index;
+            
+            // Update UI highlighting
+            document.querySelectorAll('.slide-card').forEach(el => {
+                el.classList.remove('border-primary', 'ring-2', 'ring-primary/10', 'bg-primary-light/10');
+                el.classList.add('border-gray-200', 'bg-white');
+            });
+            
+            const activeCard = document.getElementById(`slide-${index}`);
+            if (activeCard) {
+                activeCard.classList.remove('border-gray-200', 'bg-white');
+                activeCard.classList.add('border-primary', 'ring-2', 'ring-primary/10', 'bg-primary-light/10');
+                activeCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+            
+            // Update Controls
+            updateControls();
+            
+            // Cleanup previous blob
+            if (state.currentBlobUrl) {
+                URL.revokeObjectURL(state.currentBlobUrl);
+                state.currentBlobUrl = null;
+            }
+            
+            // Render Content
+            const file = state.playlistFiles[index];
+            const ext = file.name.split('.').pop().toLowerCase();
+            const type = SUPPORTED_EXTENSIONS[ext];
+            const fileURL = URL.createObjectURL(file);
+            state.currentBlobUrl = fileURL;
+            
+            els.emptyState.classList.add('hidden');
+            els.previewIframe.classList.add('hidden');
+            els.previewVideo.classList.add('hidden');
+            els.previewImage.classList.add('hidden');
+            
+            els.previewVideo.pause();
+            els.previewVideo.src = "";
+            els.previewImage.src = "";
+
+            if (type === 'iframe') {
+                // Handle sandbox for PDF to allow native viewer
+                 if (ext === 'pdf') {
+                     els.previewIframe.removeAttribute('sandbox');
+                 } else {
+                     els.previewIframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
+                 }
+
+                els.previewIframe.src = fileURL;
+                els.previewIframe.classList.remove('hidden');
+                
+                setTimeout(() => {
+                    try { els.previewIframe.contentWindow.focus(); } catch(e) {}
+                }, 100);
+                
+            } else if (type === 'video') {
+                els.previewVideo.src = fileURL;
+                els.previewVideo.classList.remove('hidden');
+            } else if (type === 'image') {
+                els.previewImage.src = fileURL;
+                els.previewImage.classList.remove('hidden');
+            }
+        }
+        
+        function showEmptyPreview() {
+            els.emptyState.classList.remove('hidden');
+            els.previewIframe.classList.add('hidden');
+            els.previewVideo.classList.add('hidden');
+            els.previewImage.classList.add('hidden');
+        }
+
+        function updateControls() {
+            const total = state.playlistFiles.length;
+            const current = state.currentIndex + 1;
+            
+            els.pageIndicator.innerText = `${current} / ${total}`;
+            
+            els.btnPrev.disabled = state.currentIndex <= 0;
+            els.btnNext.disabled = state.currentIndex >= total - 1;
+        }
+
+        function navigate(direction) {
+            const newIndex = state.currentIndex + direction;
+            if (newIndex >= 0 && newIndex < state.playlistFiles.length) {
+                selectSlide(newIndex);
+            }
+        }
+        
+        function toggleFullscreen() {
+            const elem = document.getElementById('preview-container');
+            if (!document.fullscreenElement) {
+                elem.requestFullscreen().catch(err => {
+                    console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        // Initialize language
+        updateLanguage();
+    </script>
+</body>
+</html>
